@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">cdo1</string>
-    <string name="main_menu_settings_name">Settings</string>
-    <string name="main_menu_reconnect_name">Connect</string>
-    <string name="main_menu_exit_name">Exit</string>
-</resources>
