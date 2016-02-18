@@ -40,6 +40,7 @@ When debugging applications that use USB accessory or host features, you most li
     Connect the Android-powered device via USB to your computer.
     From your SDK platform-tools/ directory, enter adb tcpip 5555 at the command prompt.
     Enter adb connect <device-ip-address>:5555 You should now be connected to the Android-powered device and can issue the usual adb commands like adb logcat.
+    adb connect 192.168.1.67:5555
     To set your device to listen on USB, enter adb usb.
 
     adb logcat -s usb
@@ -206,8 +207,26 @@ public class MainActivity extends AppCompatActivity implements SeekBar.OnSeekBar
                 // TODO Auto-generated method stub
                 JSONObject obj = (JSONObject)arg0[0];
                 try {
-                    Double d = obj.getDouble("speed") * 100.0;
-                    seekBarRed.setProgress(d.intValue());
+                    int p = obj.getInt("power");
+                    int d = obj.getInt("direction");
+
+                    if(mOutputStream != null) {
+                        try {
+                            byte[] data = new byte[4];
+                            data[0] = 0x02;
+                            data[1] = (byte)(p & 0xFF);
+                            data[2] = (byte)(d & 0xFF);
+                            data[3] = (byte)((d>>8) & 0xFF);
+                            Log.d("usb", String.format("power %d, direction %d (%d, %d, %d)", p, d, data[1], data[2], data[3]));
+                            mOutputStream.write(data);
+                            mOutputStream.flush();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+
+                    seekBarRed.setProgress((p*100)/255);
+                    seekBarGreen.setProgress((d*100)/360);
                 } catch (JSONException e) {
                     e.printStackTrace();
                 }
@@ -318,21 +337,6 @@ public class MainActivity extends AppCompatActivity implements SeekBar.OnSeekBar
             blue = (byte) value;
         }
         //linearLayout.setBackgroundColor(Color.rgb(red & 0xFF, green & 0xFF, blue & 0xFF));
-        Log.d("usb", String.format("(%d, %d, %d)", red & 0xFF, green & 0xFF, blue & 0xFF));
-
-        if(mOutputStream != null) {
-            try {
-                byte[] data = new byte[4];
-                data[0] = 0x2;
-                data[1] = red;
-                data[2] = green;
-                data[3] = blue;
-                mOutputStream.write(data);
-                mOutputStream.flush();
-            } catch (IOException e) {
-                Toast.makeText(this, "Error "+e, Toast.LENGTH_SHORT).show();
-            }
-        }
 
     }
 

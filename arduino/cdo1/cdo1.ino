@@ -1,19 +1,17 @@
-#include <adk.h>
+#include <AndroidAccessory.h>
 #include <math.h>
 #include <MotorShield.h>
 
 MS_DCMotor motorL(MOTOR_A);
 MS_DCMotor motorR(MOTOR_B);
 
-USB Usb;
-ADK adk(&Usb, "chmdebeer", // Manufacturer Name
-              "cdo1", // Model Name
-              "Example sketch for the USB Host Shield", // Description (user-visible string)
-              "0.1", // Version
-              "http://www.tkjelectronics.dk/uploads/ArduinoBlinkLED.apk", // URL (web page to visit if no installed apps support the accessory)
-              "123456789"); // Serial Number (optional)
-
-#define LED LED_BUILTIN // Use built in LED  - note that pin 13 is occupied by the SCK pin on a normal Arduino (Uno, Duemilanove etc.), so use a different pin
+// accessory descriptor. It's how Arduino identifies itself to Android
+char accessoryName[] = "cdo1"; // your Arduino board
+char companyName[] = "chmdebeer";
+char description[] = "Testing";
+char ver[] = "0.1";
+char uri[] = "https://www.chmdebeer.ca";
+char serial[] = "1234";
 
 const int pingPinFront = 22;
 const int pingPinFrontLeft = 26;
@@ -23,92 +21,56 @@ long spaceFront;
 long spaceFrontLeft;
 long spaceFrontRight;
 
-uint32_t sendTimer;
+uint32_t timer;
 uint32_t watchdog;
 
-
-boolean connected;
-
-
+// initialize the accessory:
+AndroidAccessory usb(companyName, accessoryName, description, ver);
 
 void setup() {
-  Serial.begin(115200);
-  while (!Serial); // Wait for serial port to connect - used on Leonardo, Teensy and other boards with built-in USB CDC serial connection
-  if (Usb.Init() == -1) {
-    Serial.print("\r\nOSCOKIRQ failed to assert");
-    while (1); // halt
-  }
-  pinMode(LED, OUTPUT);
-  Serial.print("\r\nArduino Blink LED Started");
+  motorL.setSpeed(0);
+  motorR.setSpeed(0);
 
-    // engage the motor's brake 
-  //motorL.run(BRAKE);
-  //motorL.setSpeed(255);
-  //motorR.run(BRAKE);
-  //motorR.setSpeed(255);
-  //motorR.run(FORWARD|RELEASE);
-  //motorR.setSpeed(0);
-
+  Serial.begin( 115200 );
+  usb.begin();
 }
 
 void loop() {
+  uint8_t msg[64] = { 0x00 };
+  const char* recv = "Received: "; 
 
   spaceFront = measureDistance(pingPinFront);
   spaceFrontLeft = measureDistance(pingPinFrontLeft);
   spaceFrontRight = measureDistance(pingPinFrontRight);
-  
-  Usb.Task();
-
-  if (adk.isReady()) {
-    if (!connected) {
-      connected = true;
-      Serial.print(F("\r\nConnected to accessory"));
-    }
-
-    uint8_t msg[4];
-    uint16_t len = sizeof(msg);
-    uint8_t rcode = adk.RcvData(&len, msg);
-
-    if (rcode && rcode != hrNAK) {
-      Serial.print(F("\r\nData rcv: "));
-      Serial.print(rcode, HEX);
-    } else if (len > 0) {
-      Serial.print(F("\r\nData Packet: "));
-      Serial.print(msg[0]);
-      Serial.print(F("\r\nRed: "));
-      Serial.print(msg[1], HEX);
-      uint8_t r = (msg[1]) & 0xFF;
-      uint8_t g = (msg[2]) & 0xFF;
-      uint8_t b = (msg[3]) & 0xFF;
-      r = r<<1;
-      r = r + 55;
-      Serial.print(F("\r\nMotor: "));
-      Serial.print(r, HEX);
-//      motorR.setSpeed(r);
-      analogWrite(LED, r);
-      //analogWrite(LED1_GREEN, 255 - g);
-      //analogWrite(LED1_BLUE, 255 - b);
-      //digitalWrite(LED, msg[0] ? HIGH : LOW);
-    }
-
-    watchdog = millis();
+   
+//   accessory.refresh();
+  if (usb.isConnected()) { // isConnected makes sure the USB connection is ope
+   
+    uint16_t len = 0;
+    uint16_t power = 0;
+    uint16_t angle = 0;
     
-    if (millis() - timer >= 500) { // Send data every 1s
-      timer = millis();
-      rcode = adk.SndData(sizeof(timer), (uint8_t*)&timer);
-      if (rcode && rcode != hrNAK) {
-        Serial.print(F("\r\nData send: "));
-        Serial.print(rcode, HEX);
-      } else if (rcode != hrNAK) {
-        Serial.print(F("\r\nTimer: "));
-        Serial.print(timer);
-      }
+    while ((usb.available() > 0) && (len < 64)) {
+      msg[len] = usb.read();
+      len++;
     }
-  } else {
-    if (connected) {
-      connected = false;
-      Serial.print(F("\r\nDisconnected from accessory"));
-      digitalWrite(LED, LOW);
+
+    if ((len > 3) && (msg[0] == 0x02)) {
+      Serial.print("\r\n");
+      power = msg[1];
+      angle = msg[3];
+      angle = angle << 8;
+      angle = angle | msg[2];
+      Serial.print(power, DEC);
+      Serial.print(", ");
+      Serial.print(angle, DEC);
+      Serial.print(", ");
+      Serial.print(spaceFrontLeft, DEC);
+      Serial.print(", ");
+      Serial.print(spaceFront, DEC);
+      Serial.print(", ");
+      Serial.print(spaceFrontRight, DEC);
+      setMotor(angle, power);
     }
   }
 }
@@ -117,6 +79,8 @@ void setMotor(int angle, int power) {
   float rad;
   float left;
   float right;
+  uint8_t motorLeft;
+  uint8_t motorRight;
   
   rad = (angle/180.0)*3.14159265359;
   if (angle == 90) {
@@ -138,6 +102,35 @@ void setMotor(int angle, int power) {
   } else {
     right = cos(rad);
   }
+
+  motorLeft = (uint8_t)(left * power) & 0xFF;
+  motorRight = (uint8_t)(right * power) & 0xFF;
+  
+  Serial.print("\r\n");
+  Serial.print(motorLeft, DEC);
+  Serial.print(", ");
+  Serial.print(motorRight, DEC);
+
+  //motorL.run(BRAKE);
+  //motorL.setSpeed(255);
+  //motorR.run(BRAKE);
+  //motorR.setSpeed(255);
+  //motorR.run(FORWARD|RELEASE);
+  //motorR.setSpeed(0);
+  motorL.setSpeed(motorLeft);
+  motorR.setSpeed(motorRight);
+  if (left < 0) {
+    motorL.run(BACKWARD|RELEASE);
+  } else {
+    motorL.run(FORWARD|RELEASE);
+  }
+
+  if (right < 0) {
+    motorR.run(BACKWARD|RELEASE);
+  } else {
+    motorR.run(FORWARD|RELEASE);
+  }
+  
 }
 
 // helper function to print the motor's states in human-readable strings.
@@ -193,4 +186,13 @@ long microsecondsToCentimeters(long microseconds) {
   // object we take half of the distance travelled.
   return microseconds / 29 / 2;
 }
+
+
+
+
+
+
+
+
+
 
